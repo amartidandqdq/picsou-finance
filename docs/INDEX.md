@@ -10,6 +10,10 @@
 
 - [ARCHITECTURE.md](./ARCHITECTURE.md) -- Overview, modules, data flows
 
+## Local fork workflow
+
+- [FORK_WORKFLOW.md](./FORK_WORKFLOW.md) -- How this checkout tracks the original project and the personal fork
+
 ## Release deliverables
 
 - [release/1.0.0/](./release/1.0.0/README.md) -- IEEE-style docs for 1.0.0:

@@ -139,6 +139,8 @@ Upload `enablebanking_public.pem` to your Enable Banking dashboard.
 
 ## Development
 
+This local copy can be used as a fork that tracks the original project. See [docs/FORK_WORKFLOW.md](docs/FORK_WORKFLOW.md) for the `origin` / `upstream` workflow before starting long-running local changes.
+
 ### Backend
 
 ```bash
