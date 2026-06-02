@@ -18,6 +18,7 @@ import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.HexFormat;
 import java.util.List;
+import java.util.Set;
 
 @Service
 @Transactional(readOnly = true)
@@ -28,6 +29,8 @@ public class FamilyService {
     private final UserMfaRepository userMfaRepository;
     private final SharingSettingsRepository sharingSettingsRepository;
     private final SharedResourceRepository sharedResourceRepository;
+    private final AccountRepository accountRepository;
+    private final GoalRepository goalRepository;
     private final PasswordEncoder passwordEncoder;
 
     public FamilyService(
@@ -36,6 +39,8 @@ public class FamilyService {
         UserMfaRepository userMfaRepository,
         SharingSettingsRepository sharingSettingsRepository,
         SharedResourceRepository sharedResourceRepository,
+        AccountRepository accountRepository,
+        GoalRepository goalRepository,
         PasswordEncoder passwordEncoder
     ) {
         this.memberRepository = memberRepository;
@@ -43,6 +48,8 @@ public class FamilyService {
         this.userMfaRepository = userMfaRepository;
         this.sharingSettingsRepository = sharingSettingsRepository;
         this.sharedResourceRepository = sharedResourceRepository;
+        this.accountRepository = accountRepository;
+        this.goalRepository = goalRepository;
         this.passwordEncoder = passwordEncoder;
     }
 
@@ -224,6 +231,8 @@ public class FamilyService {
 
     @Transactional
     public void updateSharingSettings(Long memberId, SharingSettingsRequest req) {
+        validateSharingRequest(memberId, req);
+
         SharingSettings settings = sharingSettingsRepository
             .findByMemberIdAndResourceType(memberId, req.resourceType())
             .orElseGet(() -> new SharingSettings(null, null, req.resourceType(), SharingLevel.NONE));
@@ -240,7 +249,7 @@ public class FamilyService {
         sharedResourceRepository.deleteAllByOwnerMemberIdAndResourceType(memberId, req.resourceType());
 
         if (req.sharingLevel() == SharingLevel.MANUAL && req.sharedResourceIds() != null) {
-            for (Long resourceId : req.sharedResourceIds()) {
+            for (Long resourceId : req.sharedResourceIds().stream().distinct().toList()) {
                 SharedResource sr = SharedResource.builder()
                     .ownerMember(member)
                     .resourceType(req.resourceType())
@@ -248,6 +257,32 @@ public class FamilyService {
                     .build();
                 sharedResourceRepository.save(sr);
             }
+        }
+    }
+
+    private void validateSharingRequest(Long memberId, SharingSettingsRequest req) {
+        if (req.resourceType() == null || !Set.of("ACCOUNT", "GOAL").contains(req.resourceType())) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Unsupported resource type");
+        }
+        if (req.sharingLevel() == null) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Sharing level is required");
+        }
+        if (req.sharingLevel() != SharingLevel.MANUAL || req.sharedResourceIds() == null) {
+            return;
+        }
+
+        List<Long> resourceIds = req.sharedResourceIds().stream().distinct().toList();
+        if (resourceIds.stream().anyMatch(id -> id == null)) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Shared resource IDs are required");
+        }
+
+        int ownedCount = switch (req.resourceType()) {
+            case "ACCOUNT" -> accountRepository.findAllByIdInAndMemberId(resourceIds, memberId).size();
+            case "GOAL" -> goalRepository.findAllByIdInAndMemberId(resourceIds, memberId).size();
+            default -> 0;
+        };
+        if (ownedCount != resourceIds.size()) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "One or more shared resources not found");
         }
     }
 }

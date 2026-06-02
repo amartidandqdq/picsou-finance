@@ -71,7 +71,7 @@ public class FamilyViewService {
                         .findAllByOwnerMemberIdAndResourceType(member.getId(), "ACCOUNT").stream()
                         .map(SharedResource::getResourceId)
                         .toList();
-                    accounts = accountRepository.findAllById(sharedIds);
+                    accounts = accountRepository.findAllByIdInAndMemberId(sharedIds, member.getId());
                 }
 
                 for (Account acc : accounts) {
@@ -102,13 +102,16 @@ public class FamilyViewService {
                         .findAllByOwnerMemberIdAndResourceType(member.getId(), "GOAL").stream()
                         .map(SharedResource::getResourceId)
                         .toList();
-                    goals = goalRepository.findAllById(sharedIds);
+                    goals = goalRepository.findAllByIdInAndMemberId(sharedIds, member.getId());
                 }
 
                 for (Goal goal : goals) {
-                    BigDecimal currentTotal = goal.getAccounts().stream()
-                        .map(a -> accountService.liveBalanceEur(a))
-                        .reduce(BigDecimal.ZERO, BigDecimal::add);
+                    List<Long> accountIds = goal.getAccounts().stream().map(Account::getId).toList();
+                    BigDecimal currentTotal = accountIds.isEmpty()
+                        ? BigDecimal.ZERO
+                        : accountRepository.findAllByIdInAndMemberId(accountIds, member.getId()).stream()
+                            .map(a -> accountService.liveBalanceEur(a))
+                            .reduce(BigDecimal.ZERO, BigDecimal::add);
 
                     // Build contributions per member (from manual contributions)
                     List<ContributionInfo> contributions = new ArrayList<>();

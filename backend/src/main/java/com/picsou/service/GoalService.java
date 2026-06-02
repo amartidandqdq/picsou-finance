@@ -78,10 +78,7 @@ public class GoalService {
 
     @Transactional
     public GoalProgressResponse create(GoalRequest req, FamilyMember member) {
-        List<Account> accounts = accountRepository.findAllById(req.accountIds());
-        if (accounts.size() != req.accountIds().size()) {
-            throw new IllegalArgumentException("One or more account IDs not found");
-        }
+        List<Account> accounts = loadOwnedAccounts(req.accountIds(), member.getId());
 
         Goal goal = Goal.builder()
             .name(req.name())
@@ -98,10 +95,7 @@ public class GoalService {
     public GoalProgressResponse update(Long id, GoalRequest req, Long memberId) {
         Goal goal = getOrThrow(id, memberId);
 
-        List<Account> accounts = accountRepository.findAllById(req.accountIds());
-        if (accounts.size() != req.accountIds().size()) {
-            throw new IllegalArgumentException("One or more account IDs not found");
-        }
+        List<Account> accounts = loadOwnedAccounts(req.accountIds(), memberId);
 
         goal.setName(req.name());
         goal.setTargetAmount(req.targetAmount());
@@ -120,12 +114,14 @@ public class GoalService {
     // ─── Progress calculation ─────────────────────────────────────────────────
 
     GoalProgressResponse toProgressResponse(Goal goal) {
-        List<AccountResponse> accountResponses = goal.getAccounts().stream()
+        List<Account> accounts = ownedAccountsFor(goal);
+
+        List<AccountResponse> accountResponses = accounts.stream()
             .map(accountService::toResponse)
             .toList();
 
         // Use live balance (with PnL from current prices) for each account
-        BigDecimal currentTotal = goal.getAccounts().stream()
+        BigDecimal currentTotal = accounts.stream()
             .map(accountService::liveBalanceEur)
             .reduce(BigDecimal.ZERO, BigDecimal::add);
 
@@ -169,7 +165,7 @@ public class GoalService {
      * Returns null when neither source has data.
      */
     private BigDecimal calculateAvgMonthlyContribution(Goal goal) {
-        List<Account> accounts = goal.getAccounts();
+        List<Account> accounts = ownedAccountsFor(goal);
 
         LocalDate threeMonthsAgo = LocalDate.now().minusMonths(3).withDayOfMonth(1);
         BigDecimal totalContribution = BigDecimal.ZERO;
@@ -258,7 +254,7 @@ public class GoalService {
      */
     public List<DashboardResponse.NetWorthPoint> getGoalHistory(Long goalId, Long memberId) {
         Goal goal = getOrThrow(goalId, memberId);
-        List<Long> accountIds = goal.getAccounts().stream().map(Account::getId).toList();
+        List<Long> accountIds = ownedAccountsFor(goal).stream().map(Account::getId).toList();
         return historyService.buildHistory(accountIds, 12, memberId);
     }
 
@@ -408,7 +404,7 @@ public class GoalService {
         BigDecimal total = BigDecimal.ZERO;
         boolean hasData = false;
 
-        for (Account account : goal.getAccounts()) {
+        for (Account account : ownedAccountsFor(goal)) {
             Optional<BalanceSnapshot> prev = snapshotRepository
                 .findFirstByAccountIdAndDateLessThanEqualOrderByDateDesc(account.getId(), prevMonthEnd);
             Optional<BalanceSnapshot> curr = snapshotRepository
@@ -426,5 +422,20 @@ public class GoalService {
     private Goal getOrThrow(Long id, Long memberId) {
         return goalRepository.findByIdAndMemberId(id, memberId)
             .orElseThrow(() -> ResourceNotFoundException.goal(id));
+    }
+
+    private List<Account> loadOwnedAccounts(List<Long> accountIds, Long memberId) {
+        List<Account> accounts = accountRepository.findAllByIdInAndMemberId(accountIds, memberId);
+        if (accounts.size() != accountIds.size()) {
+            throw new IllegalArgumentException("One or more account IDs not found");
+        }
+        return accounts;
+    }
+
+    private List<Account> ownedAccountsFor(Goal goal) {
+        List<Long> accountIds = goal.getAccounts().stream().map(Account::getId).toList();
+        if (accountIds.isEmpty()) return List.of();
+        if (goal.getMember() == null) return goal.getAccounts();
+        return accountRepository.findAllByIdInAndMemberId(accountIds, goal.getMember().getId());
     }
 }

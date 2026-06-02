@@ -1,6 +1,6 @@
 # Feature: Multi-account family system
 
-> Last updated: 2026-05-31
+> Last updated: 2026-06-02
 
 ## Context
 
@@ -39,6 +39,8 @@ Members choose what to share via `SharingSettings` per resource type (`ACCOUNT`,
 - `MANUAL` — share only specific resources via `shared_resource` table
 
 The `FamilyViewService` aggregates shared data for the family dashboard.
+
+Manual sharing accepts only `ACCOUNT` and `GOAL`, requires a non-null sharing level, and validates every manual shared ID against the owner member before saving. The family dashboard also loads manual shared resources through owner-scoped repository methods, so stale or malicious `shared_resource` rows cannot expose another member's account or goal.
 
 ### Profile activation flow
 

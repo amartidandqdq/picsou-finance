@@ -1,6 +1,6 @@
 # Feature: Goals
 
-> Last updated: 2026-06-02 (month-by-month backfill alongside yearly backfill)
+> Last updated: 2026-06-02 (member-scoped linked account validation)
 
 ## Context
 
@@ -11,6 +11,8 @@ Picsou lets users define savings goals with a target amount and deadline. Goals 
 ### Goal-Account relationship
 
 A `Goal` has a M:N relationship with `Account` via the `goal_account` join table. An account can belong to multiple goals, and a goal can have multiple accounts. When progress is calculated, the balances of all linked accounts are summed.
+
+When a goal is created or updated, every requested linked account ID must belong to the current member. Cross-member account IDs are rejected before the goal is saved.
 
 ### Progress calculation
 

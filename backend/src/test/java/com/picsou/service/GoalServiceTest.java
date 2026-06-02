@@ -1,8 +1,10 @@
 package com.picsou.service;
 
 import com.picsou.dto.GoalProgressResponse;
+import com.picsou.dto.GoalRequest;
 import com.picsou.model.Account;
 import com.picsou.model.AccountType;
+import com.picsou.model.FamilyMember;
 import com.picsou.model.Goal;
 import com.picsou.repository.AccountRepository;
 import com.picsou.repository.BalanceSnapshotRepository;
@@ -22,7 +24,11 @@ import java.time.LocalDate;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.lenient;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
@@ -38,6 +44,98 @@ class GoalServiceTest {
     @Mock HistoryService historyService;
 
     @InjectMocks GoalService goalService;
+
+    @Test
+    void create_rejectsAccountIdsOutsideCurrentMember() {
+        FamilyMember member = FamilyMember.builder().id(1L).displayName("Alice").build();
+        Account ownedAccount = Account.builder().id(10L).build();
+        GoalRequest request = new GoalRequest(
+            "Emergency fund",
+            new BigDecimal("10000"),
+            LocalDate.now().plusMonths(6),
+            List.of(10L, 20L)
+        );
+        when(accountRepository.findAllByIdInAndMemberId(List.of(10L, 20L), 1L))
+            .thenReturn(List.of(ownedAccount));
+
+        assertThatThrownBy(() -> goalService.create(request, member))
+            .isInstanceOf(IllegalArgumentException.class)
+            .hasMessageContaining("account IDs not found");
+
+        verify(goalRepository, never()).save(any(Goal.class));
+    }
+
+    @Test
+    void update_rejectsAccountIdsOutsideCurrentMember() {
+        Goal goal = Goal.builder().id(1L).accounts(List.of()).build();
+        GoalRequest request = new GoalRequest(
+            "Emergency fund",
+            new BigDecimal("10000"),
+            LocalDate.now().plusMonths(6),
+            List.of(10L, 20L)
+        );
+        when(goalRepository.findByIdAndMemberId(1L, 1L)).thenReturn(java.util.Optional.of(goal));
+        when(accountRepository.findAllByIdInAndMemberId(List.of(10L, 20L), 1L))
+            .thenReturn(List.of(Account.builder().id(10L).build()));
+
+        assertThatThrownBy(() -> goalService.update(1L, request, 1L))
+            .isInstanceOf(IllegalArgumentException.class)
+            .hasMessageContaining("account IDs not found");
+
+        verify(goalRepository, never()).save(any(Goal.class));
+    }
+
+    @Test
+    void progressCalculation_ignoresContaminatedAccountsOutsideGoalMember() {
+        FamilyMember member = FamilyMember.builder().id(1L).displayName("Alice").build();
+        Account ownedAccount = Account.builder()
+            .id(10L)
+            .member(member)
+            .name("LEP")
+            .type(AccountType.LEP)
+            .currency("EUR")
+            .currentBalance(new BigDecimal("5000"))
+            .color("#6366f1")
+            .build();
+        Account foreignAccount = Account.builder()
+            .id(20L)
+            .name("Foreign")
+            .type(AccountType.SAVINGS)
+            .currency("EUR")
+            .currentBalance(new BigDecimal("999999"))
+            .build();
+        Goal goal = Goal.builder()
+            .id(1L)
+            .member(member)
+            .name("Emergency fund")
+            .targetAmount(new BigDecimal("10000"))
+            .deadline(LocalDate.now().plusMonths(6))
+            .accounts(List.of(ownedAccount, foreignAccount))
+            .build();
+
+        when(accountRepository.findAllByIdInAndMemberId(List.of(10L, 20L), 1L))
+            .thenReturn(List.of(ownedAccount));
+        when(accountService.toResponse(ownedAccount)).thenReturn(
+            new com.picsou.dto.AccountResponse(
+                10L, "LEP", AccountType.LEP, null, "EUR",
+                new BigDecimal("5000"), new BigDecimal("5000"),
+                null, true, "#6366f1", null, null, null, null
+            )
+        );
+        when(accountService.liveBalanceEur(ownedAccount)).thenReturn(new BigDecimal("5000"));
+        when(snapshotRepository.findRecentByAccountId(
+            org.mockito.ArgumentMatchers.eq(10L),
+            org.mockito.ArgumentMatchers.any()
+        )).thenReturn(List.of());
+
+        GoalProgressResponse progress = goalService.toProgressResponse(goal);
+
+        assertThat(progress.currentTotal()).isEqualByComparingTo("5000");
+        assertThat(progress.accounts().stream().map(com.picsou.dto.AccountResponse::id).toList())
+            .containsExactly(10L);
+        verify(accountService, never()).liveBalanceEur(foreignAccount);
+        verify(accountService, never()).toResponse(foreignAccount);
+    }
 
     @Test
     void progressCalculation_onTrack() {

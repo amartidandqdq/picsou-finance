@@ -10,6 +10,7 @@ import java.util.Optional;
 
 public interface AccountRepository extends JpaRepository<Account, Long> {
     List<Account> findAllByMemberIdOrderByCreatedAtAsc(Long memberId);
+    List<Account> findAllByIdInAndMemberId(List<Long> ids, Long memberId);
     Optional<Account> findByIdAndMemberId(Long id, Long memberId);
     Optional<Account> findByExternalAccountIdAndMemberId(String externalAccountId, Long memberId);
     List<Account> findByTickerIsNotNullAndMemberId(Long memberId);

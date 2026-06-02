@@ -2,9 +2,13 @@ package com.picsou.service;
 
 import com.picsou.model.AppUser;
 import com.picsou.model.FamilyMember;
+import com.picsou.model.SharingLevel;
 import com.picsou.model.UserRole;
+import com.picsou.dto.SharingSettingsRequest;
+import com.picsou.repository.AccountRepository;
 import com.picsou.repository.AppUserRepository;
 import com.picsou.repository.FamilyMemberRepository;
+import com.picsou.repository.GoalRepository;
 import com.picsou.repository.SharedResourceRepository;
 import com.picsou.repository.SharingSettingsRepository;
 import com.picsou.repository.UserMfaRepository;
@@ -18,6 +22,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.security.crypto.password.PasswordEncoder;
 
 import java.util.Optional;
+import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -36,9 +41,61 @@ class FamilyServiceTest {
     @Mock UserMfaRepository userMfaRepository;
     @Mock SharingSettingsRepository sharingSettingsRepository;
     @Mock SharedResourceRepository sharedResourceRepository;
+    @Mock AccountRepository accountRepository;
+    @Mock GoalRepository goalRepository;
     @Mock PasswordEncoder passwordEncoder;
 
     @InjectMocks FamilyService familyService;
+
+    @Test
+    void updateSharingSettings_rejectsUnsupportedResourceType() {
+        SharingSettingsRequest request = new SharingSettingsRequest("DEBT", SharingLevel.ALL, List.of());
+
+        assertThatThrownBy(() -> familyService.updateSharingSettings(3L, request))
+            .isInstanceOf(ResponseStatusException.class)
+            .hasMessageContaining("Unsupported resource type");
+
+        verify(sharingSettingsRepository, never()).save(any());
+    }
+
+    @Test
+    void updateSharingSettings_rejectsNullSharingLevel() {
+        SharingSettingsRequest request = new SharingSettingsRequest("ACCOUNT", null, List.of());
+
+        assertThatThrownBy(() -> familyService.updateSharingSettings(3L, request))
+            .isInstanceOf(ResponseStatusException.class)
+            .hasMessageContaining("Sharing level is required");
+
+        verify(sharingSettingsRepository, never()).save(any());
+    }
+
+    @Test
+    void updateSharingSettings_rejectsManualAccountIdsOutsideCurrentMember() {
+        SharingSettingsRequest request = new SharingSettingsRequest("ACCOUNT", SharingLevel.MANUAL, List.of(10L, 20L));
+        when(accountRepository.findAllByIdInAndMemberId(List.of(10L, 20L), 3L))
+            .thenReturn(List.of());
+
+        assertThatThrownBy(() -> familyService.updateSharingSettings(3L, request))
+            .isInstanceOf(ResponseStatusException.class)
+            .hasMessageContaining("shared resources not found");
+
+        verify(sharingSettingsRepository, never()).save(any());
+        verify(sharedResourceRepository, never()).save(any());
+    }
+
+    @Test
+    void updateSharingSettings_rejectsManualGoalIdsOutsideCurrentMember() {
+        SharingSettingsRequest request = new SharingSettingsRequest("GOAL", SharingLevel.MANUAL, List.of(30L));
+        when(goalRepository.findAllByIdInAndMemberId(List.of(30L), 3L))
+            .thenReturn(List.of());
+
+        assertThatThrownBy(() -> familyService.updateSharingSettings(3L, request))
+            .isInstanceOf(ResponseStatusException.class)
+            .hasMessageContaining("shared resources not found");
+
+        verify(sharingSettingsRepository, never()).save(any());
+        verify(sharedResourceRepository, never()).save(any());
+    }
 
     private FamilyMember member(String displayName) {
         return FamilyMember.builder()
