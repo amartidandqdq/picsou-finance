@@ -3,6 +3,7 @@ package com.picsou.service;
 import com.picsou.model.AppUser;
 import com.picsou.model.FamilyMember;
 import com.picsou.model.SharingLevel;
+import com.picsou.model.SharingSettings;
 import com.picsou.model.UserRole;
 import com.picsou.dto.SharingSettingsRequest;
 import com.picsou.repository.AccountRepository;

@@ -147,6 +147,7 @@ class GoalServiceTest {
             .isInstanceOf(ResourceNotFoundException.class);
 
         verify(overrideRepository, never()).delete(any());
+        verify(overrideRepository, never()).findByGoalIdAndYearMonth(99L, "2026-06");
     }
 
     @Test
@@ -157,6 +158,7 @@ class GoalServiceTest {
             .isInstanceOf(ResourceNotFoundException.class);
 
         verify(manualContributionRepository, never()).delete(any());
+        verify(manualContributionRepository, never()).findByGoalIdAndYearMonth(99L, "2026-06");
     }
 
     @Test
@@ -171,6 +173,7 @@ class GoalServiceTest {
         );
         when(accountRepository.findAllByIdInAndMemberId(List.of(10L), 1L))
             .thenReturn(List.of(ownedAccount));
+        when(accountService.liveBalanceEur(ownedAccount)).thenReturn(BigDecimal.ZERO);
         when(goalRepository.save(any(Goal.class))).thenAnswer(inv -> {
             Goal g = inv.getArgument(0);
             g.setId(1L);
@@ -178,7 +181,8 @@ class GoalServiceTest {
         });
 
         GoalProgressResponse response = goalService.create(request, member);
-        assertThat(response).isNotNull();
+        assertThat(response.accounts()).hasSize(1);
+        assertThat(response.currentTotal()).isEqualByComparingTo(BigDecimal.ZERO);
         verify(goalRepository).save(any(Goal.class));
     }
 
