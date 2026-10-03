@@ -70,6 +70,7 @@ docs_template*/
 docs_template*.zip
 
 # Tooling caches / local-only
+.atl/
 .playwright-mcp/
 .superpowers/
 docs/superpowers/

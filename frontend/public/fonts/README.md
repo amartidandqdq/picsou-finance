@@ -7,19 +7,17 @@ with the project's privacy/OSS posture.
 
 ## What to drop here
 
-`HomemadeApple-Regular.woff2` — ~23 kB. Fetch once and commit:
+`HomemadeApple-Regular.ttf` — self-hosted font file. Fetch once and commit:
 
 ```bash
 # From https://fonts.google.com/specimen/Homemade+Apple/license
-# Download the family zip, convert the TTF to woff2 if needed:
-#   brew install woff2
-#   woff2_compress HomemadeApple-Regular.ttf
-cp HomemadeApple-Regular.woff2 frontend/public/fonts/
+# Download the family zip, then copy the TTF:
+cp HomemadeApple-Regular.ttf frontend/public/fonts/
 ```
 
 ## Graceful fallback
 
-If the woff2 is missing, the CSS declares a fallback stack
+If the font file is missing, the CSS declares a fallback stack
 (`'Segoe Script', 'Snell Roundhand', cursive`) so the wizard still renders
 something legible — just less special. The page will NOT try to download
 the font from Google as a backup; that would defeat the point.

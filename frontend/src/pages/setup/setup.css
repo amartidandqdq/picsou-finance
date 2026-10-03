@@ -67,7 +67,7 @@
 
 @font-face {
   font-family: 'Homemade Apple';
-  src: url('/fonts/HomemadeApple-Regular.woff2') format('woff2');
+  src: url('/fonts/HomemadeApple-Regular.ttf') format('truetype');
   font-weight: 400;
   font-display: swap;
 }

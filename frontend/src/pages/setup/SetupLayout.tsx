@@ -44,9 +44,9 @@ export function SetupLayout() {
     link.id = id
     link.rel = 'preload'
     link.as = 'font'
-    link.type = 'font/woff2'
+    link.type = 'font/ttf'
     link.crossOrigin = 'anonymous'
-    link.href = '/fonts/HomemadeApple-Regular.woff2'
+    link.href = '/fonts/HomemadeApple-Regular.ttf'
     document.head.appendChild(link)
   }, [])
 
