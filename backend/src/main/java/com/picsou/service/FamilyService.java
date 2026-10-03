@@ -276,7 +276,7 @@ public class FamilyService {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Shared resource IDs are required");
         }
 
-        int ownedCount = switch (req.resourceType()) {
+        int ownedCount = resourceIds.isEmpty() ? 0 : switch (req.resourceType()) {
             case "ACCOUNT" -> accountRepository.findAllByIdInAndMemberId(resourceIds, memberId).size();
             case "GOAL" -> goalRepository.findAllByIdInAndMemberId(resourceIds, memberId).size();
             default -> 0;

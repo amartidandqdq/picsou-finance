@@ -2,6 +2,7 @@ package com.picsou.service;
 
 import com.picsou.dto.GoalProgressResponse;
 import com.picsou.dto.GoalRequest;
+import com.picsou.exception.ResourceNotFoundException;
 import com.picsou.model.Account;
 import com.picsou.model.AccountType;
 import com.picsou.model.FamilyMember;
@@ -22,6 +23,7 @@ import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.LocalDate;
 import java.util.List;
+import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -135,6 +137,49 @@ class GoalServiceTest {
             .containsExactly(10L);
         verify(accountService, never()).liveBalanceEur(foreignAccount);
         verify(accountService, never()).toResponse(foreignAccount);
+    }
+
+    @Test
+    void deleteMonthOverride_rejectsGoalOutsideMember() {
+        when(goalRepository.findByIdAndMemberId(99L, 1L)).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> goalService.deleteMonthOverride(99L, "2026-06", 1L))
+            .isInstanceOf(ResourceNotFoundException.class);
+
+        verify(overrideRepository, never()).delete(any());
+    }
+
+    @Test
+    void deleteManualContribution_rejectsGoalOutsideMember() {
+        when(goalRepository.findByIdAndMemberId(99L, 1L)).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> goalService.deleteManualContribution(99L, "2026-06", 1L))
+            .isInstanceOf(ResourceNotFoundException.class);
+
+        verify(manualContributionRepository, never()).delete(any());
+    }
+
+    @Test
+    void create_handlesDuplicateAccountIds() {
+        FamilyMember member = FamilyMember.builder().id(1L).displayName("Alice").build();
+        Account ownedAccount = Account.builder().id(10L).member(member).build();
+        GoalRequest request = new GoalRequest(
+            "Emergency fund",
+            new BigDecimal("10000"),
+            LocalDate.now().plusMonths(6),
+            List.of(10L, 10L)
+        );
+        when(accountRepository.findAllByIdInAndMemberId(List.of(10L), 1L))
+            .thenReturn(List.of(ownedAccount));
+        when(goalRepository.save(any(Goal.class))).thenAnswer(inv -> {
+            Goal g = inv.getArgument(0);
+            g.setId(1L);
+            return g;
+        });
+
+        GoalProgressResponse response = goalService.create(request, member);
+        assertThat(response).isNotNull();
+        verify(goalRepository).save(any(Goal.class));
     }
 
     @Test

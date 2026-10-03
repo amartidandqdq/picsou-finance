@@ -25,6 +25,7 @@ import java.util.List;
 import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -126,5 +127,28 @@ class FamilyViewServiceTest {
         assertThat(dashboard.sharedGoals()).hasSize(1);
         assertThat(dashboard.sharedGoals().getFirst().currentTotal()).isEqualByComparingTo("1000");
         verify(accountService, never()).liveBalanceEur(foreignAccount);
+    }
+
+    @Test
+    void getFamilyDashboard_manualSharingWithEmptySharedIds_returnsEmptyListWithoutQueryingRepos() {
+        FamilyMember viewer = FamilyMember.builder().id(1L).displayName("Viewer").build();
+        FamilyMember owner = FamilyMember.builder().id(2L).displayName("Owner").build();
+
+        when(memberRepository.findAllByOrderByCreatedAtAsc()).thenReturn(List.of(viewer, owner));
+        when(sharingSettingsRepository.findByMemberIdAndResourceType(2L, "ACCOUNT"))
+            .thenReturn(Optional.of(new SharingSettings(1L, owner, "ACCOUNT", SharingLevel.MANUAL)));
+        when(sharingSettingsRepository.findByMemberIdAndResourceType(2L, "GOAL"))
+            .thenReturn(Optional.of(new SharingSettings(2L, owner, "GOAL", SharingLevel.MANUAL)));
+        when(sharedResourceRepository.findAllByOwnerMemberIdAndResourceType(2L, "ACCOUNT"))
+            .thenReturn(List.of());
+        when(sharedResourceRepository.findAllByOwnerMemberIdAndResourceType(2L, "GOAL"))
+            .thenReturn(List.of());
+
+        var dashboard = familyViewService.getFamilyDashboard(1L);
+
+        assertThat(dashboard.sharedAccounts()).isEmpty();
+        assertThat(dashboard.sharedGoals()).isEmpty();
+        verify(accountRepository, never()).findAllByIdInAndMemberId(any(), any());
+        verify(goalRepository, never()).findAllByIdInAndMemberId(any(), any());
     }
 }

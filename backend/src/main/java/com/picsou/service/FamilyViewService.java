@@ -71,7 +71,9 @@ public class FamilyViewService {
                         .findAllByOwnerMemberIdAndResourceType(member.getId(), "ACCOUNT").stream()
                         .map(SharedResource::getResourceId)
                         .toList();
-                    accounts = accountRepository.findAllByIdInAndMemberId(sharedIds, member.getId());
+                    accounts = sharedIds.isEmpty()
+                        ? List.of()
+                        : accountRepository.findAllByIdInAndMemberId(sharedIds, member.getId());
                 }
 
                 for (Account acc : accounts) {
@@ -102,7 +104,9 @@ public class FamilyViewService {
                         .findAllByOwnerMemberIdAndResourceType(member.getId(), "GOAL").stream()
                         .map(SharedResource::getResourceId)
                         .toList();
-                    goals = goalRepository.findAllByIdInAndMemberId(sharedIds, member.getId());
+                    goals = sharedIds.isEmpty()
+                        ? List.of()
+                        : goalRepository.findAllByIdInAndMemberId(sharedIds, member.getId());
                 }
 
                 for (Goal goal : goals) {

@@ -97,6 +97,21 @@ class FamilyServiceTest {
         verify(sharedResourceRepository, never()).save(any());
     }
 
+    @Test
+    void updateSharingSettings_manualSharingWithEmptyIds_succeedsWithoutQueryingRepos() {
+        FamilyMember member = FamilyMember.builder().id(3L).displayName("Charlie").build();
+        when(memberRepository.findById(3L)).thenReturn(Optional.of(member));
+        when(sharingSettingsRepository.findByMemberIdAndResourceType(3L, "ACCOUNT"))
+            .thenReturn(Optional.empty());
+
+        SharingSettingsRequest request = new SharingSettingsRequest("ACCOUNT", SharingLevel.MANUAL, List.of());
+        familyService.updateSharingSettings(3L, request);
+
+        verify(sharingSettingsRepository).save(any(SharingSettings.class));
+        verify(sharedResourceRepository).deleteAllByOwnerMemberIdAndResourceType(3L, "ACCOUNT");
+        verify(accountRepository, never()).findAllByIdInAndMemberId(any(), any());
+    }
+
     private FamilyMember member(String displayName) {
         return FamilyMember.builder()
             .id(3L)

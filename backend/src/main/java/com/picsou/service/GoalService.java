@@ -349,9 +349,9 @@ public class GoalService {
 
     @Transactional
     public GoalMonthEntryResponse deleteMonthOverride(Long goalId, String yearMonth, Long memberId) {
+        Goal goal = getOrThrow(goalId, memberId);
         overrideRepository.findByGoalIdAndYearMonth(goalId, yearMonth)
             .ifPresent(overrideRepository::delete);
-        Goal goal = getOrThrow(goalId, memberId);
         BigDecimal objective = toProgressResponse(goal).monthlyNeeded();
         BigDecimal actual = calculateActualForMonth(goal, YearMonth.parse(yearMonth));
         BigDecimal manualActual = manualContributionRepository.findByGoalIdAndYearMonth(goalId, yearMonth)
@@ -384,9 +384,9 @@ public class GoalService {
 
     @Transactional
     public GoalMonthEntryResponse deleteManualContribution(Long goalId, String yearMonth, Long memberId) {
+        Goal goal = getOrThrow(goalId, memberId);
         manualContributionRepository.findByGoalIdAndYearMonth(goalId, yearMonth)
             .ifPresent(manualContributionRepository::delete);
-        Goal goal = getOrThrow(goalId, memberId);
         BigDecimal objective = toProgressResponse(goal).monthlyNeeded();
         BigDecimal actual = calculateActualForMonth(goal, YearMonth.parse(yearMonth));
         BigDecimal override = overrideRepository.findByGoalIdAndYearMonth(goalId, yearMonth)
@@ -425,8 +425,12 @@ public class GoalService {
     }
 
     private List<Account> loadOwnedAccounts(List<Long> accountIds, Long memberId) {
-        List<Account> accounts = accountRepository.findAllByIdInAndMemberId(accountIds, memberId);
-        if (accounts.size() != accountIds.size()) {
+        if (accountIds == null || accountIds.isEmpty()) {
+            return List.of();
+        }
+        List<Long> distinctIds = accountIds.stream().distinct().toList();
+        List<Account> accounts = accountRepository.findAllByIdInAndMemberId(distinctIds, memberId);
+        if (accounts.size() != distinctIds.size()) {
             throw new IllegalArgumentException("One or more account IDs not found");
         }
         return accounts;
