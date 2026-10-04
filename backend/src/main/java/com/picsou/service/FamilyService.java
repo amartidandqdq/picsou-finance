@@ -16,9 +16,11 @@ import java.security.SecureRandom;
 import java.text.Normalizer;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
+import java.util.HashSet;
 import java.util.HexFormat;
 import java.util.List;
 import java.util.Set;
+import java.util.stream.Collectors;
 
 @Service
 @Transactional(readOnly = true)
@@ -231,7 +233,7 @@ public class FamilyService {
 
     @Transactional
     public void updateSharingSettings(Long memberId, SharingSettingsRequest req) {
-        validateSharingRequest(memberId, req);
+        List<Long> sharedResourceIds = validateSharingRequest(memberId, req);
 
         SharingSettings settings = sharingSettingsRepository
             .findByMemberIdAndResourceType(memberId, req.resourceType())
@@ -248,8 +250,8 @@ public class FamilyService {
 
         sharedResourceRepository.deleteAllByOwnerMemberIdAndResourceType(memberId, req.resourceType());
 
-        if (req.sharingLevel() == SharingLevel.MANUAL && req.sharedResourceIds() != null) {
-            for (Long resourceId : req.sharedResourceIds().stream().distinct().toList()) {
+        if (sharedResourceIds != null) {
+            for (Long resourceId : sharedResourceIds) {
                 SharedResource sr = SharedResource.builder()
                     .ownerMember(member)
                     .resourceType(req.resourceType())
@@ -260,7 +262,17 @@ public class FamilyService {
         }
     }
 
-    private void validateSharingRequest(Long memberId, SharingSettingsRequest req) {
+    /**
+     * Validates the request and returns the resource IDs to persist
+     * ({@code null} for non-manual levels).
+     *
+     * <p>Stale IDs — resources that were shared before but no longer exist
+     * (soft-deleted account, removed goal) — are tolerated by the ownership
+     * check but omitted from the returned list: their lingering
+     * {@code shared_resource} rows would otherwise make the count check reject
+     * the request, leaving the user unable to update their manual selection.
+     */
+    private List<Long> validateSharingRequest(Long memberId, SharingSettingsRequest req) {
         if (req.resourceType() == null || !Set.of("ACCOUNT", "GOAL").contains(req.resourceType())) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Unsupported resource type");
         }
@@ -268,21 +280,43 @@ public class FamilyService {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Sharing level is required");
         }
         if (req.sharingLevel() != SharingLevel.MANUAL || req.sharedResourceIds() == null) {
-            return;
+            return null;
         }
 
         List<Long> resourceIds = req.sharedResourceIds().stream().distinct().toList();
         if (resourceIds.stream().anyMatch(id -> id == null)) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Shared resource IDs are required");
         }
+        if (resourceIds.isEmpty()) {
+            return resourceIds;
+        }
 
-        int ownedCount = resourceIds.isEmpty() ? 0 : switch (req.resourceType()) {
-            case "ACCOUNT" -> accountRepository.findAllByIdInAndMemberId(resourceIds, memberId).size();
-            case "GOAL" -> goalRepository.findAllByIdInAndMemberId(resourceIds, memberId).size();
-            default -> 0;
+        // Stale IDs — previously shared resources that no longer exist (soft-deleted
+        // account, removed goal) — are tolerated when validating and omitted from the
+        // result: their lingering shared_resource rows would otherwise make the
+        // ownership check reject the request. An ID that was never shared and is not
+        // owned is still rejected.
+        List<Long> ownedIds = switch (req.resourceType()) {
+            case "ACCOUNT" -> accountRepository.findAllByIdInAndMemberId(resourceIds, memberId).stream()
+                .map(Account::getId).toList();
+            case "GOAL" -> goalRepository.findAllByIdInAndMemberId(resourceIds, memberId).stream()
+                .map(Goal::getId).toList();
+            default -> List.of();
         };
-        if (ownedCount != resourceIds.size()) {
+        if (ownedIds.size() == resourceIds.size()) {
+            return resourceIds;
+        }
+
+        Set<Long> ownedSet = new HashSet<>(ownedIds);
+        Set<Long> staleIds = sharedResourceRepository
+            .findAllByOwnerMemberIdAndResourceType(memberId, req.resourceType()).stream()
+            .map(SharedResource::getResourceId)
+            .collect(Collectors.toSet());
+        boolean hasUnknownId = resourceIds.stream()
+            .anyMatch(id -> !ownedSet.contains(id) && !staleIds.contains(id));
+        if (hasUnknownId) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "One or more shared resources not found");
         }
+        return resourceIds.stream().filter(ownedSet::contains).toList();
     }
 }

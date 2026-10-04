@@ -480,4 +480,50 @@ class GoalServiceTest {
 
         assertThat(progress.isOnTrack()).isTrue();
     }
+
+    @Test
+    void getMonthlyEntries_queriesOwnedAccountsOnlyOnce() {
+        // Regression test for the Codex review finding: the owned accounts were
+        // re-queried for every history month (once per calculateActualForMonth call
+        // in both the on-track and monthly-entries loops).
+        FamilyMember member = FamilyMember.builder().id(1L).displayName("Alice").build();
+        Account account = Account.builder()
+            .id(1L).member(member).name("Livret").type(AccountType.SAVINGS)
+            .currency("EUR").currentBalance(new BigDecimal("5000")).color("#000").build();
+        java.time.Instant created = LocalDate.now().minusMonths(3).withDayOfMonth(1)
+            .atStartOfDay(java.time.ZoneId.systemDefault()).toInstant();
+        Goal goal = Goal.builder()
+            .id(1L).member(member).name("Test").targetAmount(new BigDecimal("10000"))
+            .deadline(LocalDate.now().plusMonths(1))
+            .accounts(List.of(account))
+            .build();
+        org.springframework.test.util.ReflectionTestUtils.setField(goal, "createdAt", created);
+
+        when(goalRepository.findByIdAndMemberId(1L, 1L)).thenReturn(java.util.Optional.of(goal));
+        when(accountRepository.findAllByIdInAndMemberId(List.of(1L), 1L)).thenReturn(List.of(account));
+        when(accountService.toResponse(account)).thenReturn(
+            new com.picsou.dto.AccountResponse(
+                1L, "Livret", AccountType.SAVINGS, null, "EUR",
+                new BigDecimal("5000"), new BigDecimal("5000"),
+                null, true, "#000", null, null, null, null
+            )
+        );
+        when(accountService.liveBalanceEur(account)).thenReturn(new BigDecimal("5000"));
+        when(snapshotRepository.findRecentByAccountId(
+            org.mockito.ArgumentMatchers.eq(1L),
+            org.mockito.ArgumentMatchers.any()
+        )).thenReturn(List.of());
+        lenient().when(snapshotRepository
+            .findFirstByAccountIdAndDateLessThanEqualOrderByDateDesc(
+                org.mockito.ArgumentMatchers.eq(1L), org.mockito.ArgumentMatchers.any()))
+            .thenReturn(java.util.Optional.empty());
+        when(overrideRepository.findByGoalId(1L)).thenReturn(List.of());
+        when(manualContributionRepository.findByGoalId(1L)).thenReturn(List.of());
+
+        var entries = goalService.getMonthlyEntries(1L, 1L);
+
+        assertThat(entries).isNotEmpty();
+        verify(accountRepository, org.mockito.Mockito.times(1))
+            .findAllByIdInAndMemberId(List.of(1L), 1L);
+    }
 }

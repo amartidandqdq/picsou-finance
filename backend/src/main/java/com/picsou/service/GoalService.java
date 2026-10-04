@@ -114,8 +114,10 @@ public class GoalService {
     // ─── Progress calculation ─────────────────────────────────────────────────
 
     GoalProgressResponse toProgressResponse(Goal goal) {
-        List<Account> accounts = ownedAccountsFor(goal);
+        return toProgressResponse(goal, ownedAccountsFor(goal));
+    }
 
+    GoalProgressResponse toProgressResponse(Goal goal, List<Account> accounts) {
         List<AccountResponse> accountResponses = accounts.stream()
             .map(accountService::toResponse)
             .toList();
@@ -141,11 +143,11 @@ public class GoalService {
             ? currentTotal.divide(target, 4, RoundingMode.HALF_UP).multiply(BigDecimal.valueOf(100))
             : BigDecimal.ZERO;
 
-        BigDecimal avgMonthlyContribution = calculateAvgMonthlyContribution(goal);
+        BigDecimal avgMonthlyContribution = calculateAvgMonthlyContribution(goal, accounts);
 
         // isOnTrack now compares cumulative past objectives vs cumulative past effectives
         // (overrides + manual contributions included). Indirect user override via the calendar.
-        boolean isOnTrack = isOnTrackFromPastMonths(goal, monthlyNeeded);
+        boolean isOnTrack = isOnTrackFromPastMonths(goal, accounts, monthlyNeeded);
 
         BigDecimal surplus = avgMonthlyContribution != null
             ? avgMonthlyContribution.subtract(monthlyNeeded)
@@ -164,9 +166,7 @@ public class GoalService {
      * of the recorded manual contributions, which backfilled history then refines.
      * Returns null when neither source has data.
      */
-    private BigDecimal calculateAvgMonthlyContribution(Goal goal) {
-        List<Account> accounts = ownedAccountsFor(goal);
-
+    private BigDecimal calculateAvgMonthlyContribution(Goal goal, List<Account> accounts) {
         LocalDate threeMonthsAgo = LocalDate.now().minusMonths(3).withDayOfMonth(1);
         BigDecimal totalContribution = BigDecimal.ZERO;
         int accountsWithData = 0;
@@ -209,7 +209,7 @@ public class GoalService {
      * - "past" = strictly before current month (current month is in progress).
      * - If goal has no createdAt or no past month with data, returns true (benefit of the doubt).
      */
-    private boolean isOnTrackFromPastMonths(Goal goal, BigDecimal monthlyNeeded) {
+    private boolean isOnTrackFromPastMonths(Goal goal, List<Account> accounts, BigDecimal monthlyNeeded) {
         if (monthlyNeeded.compareTo(BigDecimal.ZERO) <= 0) return true;
         if (goal.getCreatedAt() == null) return true;
 
@@ -232,7 +232,7 @@ public class GoalService {
         while (cursor.isBefore(currentMonth)) {
             String ym = cursor.toString();
             BigDecimal manualActual = manualMap.get(ym);
-            BigDecimal actual = manualActual != null ? manualActual : calculateActualForMonth(goal, cursor);
+            BigDecimal actual = manualActual != null ? manualActual : calculateActualForMonth(accounts, cursor);
             if (actual != null) {
                 BigDecimal objective = overrideMap.getOrDefault(ym, monthlyNeeded);
                 sumObjective = sumObjective.add(objective);
@@ -262,7 +262,8 @@ public class GoalService {
 
     public List<GoalMonthEntryResponse> getMonthlyEntries(Long goalId, Long memberId) {
         Goal goal = getOrThrow(goalId, memberId);
-        BigDecimal objective = toProgressResponse(goal).monthlyNeeded();
+        List<Account> accounts = ownedAccountsFor(goal);
+        BigDecimal objective = toProgressResponse(goal, accounts).monthlyNeeded();
 
         Map<String, BigDecimal> overrideMap = overrideRepository.findByGoalId(goalId).stream()
             .collect(Collectors.toMap(GoalMonthOverride::getYearMonth, GoalMonthOverride::getAmount));
@@ -277,7 +278,7 @@ public class GoalService {
         YearMonth current = startMonth;
         while (!current.isAfter(endMonth)) {
             String ym = current.toString();
-            BigDecimal actual = calculateActualForMonth(goal, current);
+            BigDecimal actual = calculateActualForMonth(accounts, current);
             BigDecimal manualActual = manualMap.get(ym);
             BigDecimal override = overrideMap.get(ym);
             BigDecimal effective = override != null ? override : (manualActual != null ? manualActual : actual);
@@ -332,6 +333,7 @@ public class GoalService {
     @Transactional
     public GoalMonthEntryResponse setMonthOverride(Long goalId, String yearMonth, BigDecimal amount, Long memberId) {
         Goal goal = getOrThrow(goalId, memberId);
+        List<Account> accounts = ownedAccountsFor(goal);
         GoalMonthOverride entry = overrideRepository
             .findByGoalIdAndYearMonth(goalId, yearMonth)
             .orElseGet(GoalMonthOverride::new);
@@ -340,8 +342,8 @@ public class GoalService {
         entry.setAmount(amount);
         overrideRepository.save(entry);
 
-        BigDecimal objective = toProgressResponse(goal).monthlyNeeded();
-        BigDecimal actual = calculateActualForMonth(goal, YearMonth.parse(yearMonth));
+        BigDecimal objective = toProgressResponse(goal, accounts).monthlyNeeded();
+        BigDecimal actual = calculateActualForMonth(accounts, YearMonth.parse(yearMonth));
         BigDecimal manualActual = manualContributionRepository.findByGoalIdAndYearMonth(goalId, yearMonth)
             .map(GoalManualContribution::getAmount).orElse(null);
         return new GoalMonthEntryResponse(yearMonth, objective, actual, manualActual, amount, amount);
@@ -350,10 +352,11 @@ public class GoalService {
     @Transactional
     public GoalMonthEntryResponse deleteMonthOverride(Long goalId, String yearMonth, Long memberId) {
         Goal goal = getOrThrow(goalId, memberId);
+        List<Account> accounts = ownedAccountsFor(goal);
         overrideRepository.findByGoalIdAndYearMonth(goalId, yearMonth)
             .ifPresent(overrideRepository::delete);
-        BigDecimal objective = toProgressResponse(goal).monthlyNeeded();
-        BigDecimal actual = calculateActualForMonth(goal, YearMonth.parse(yearMonth));
+        BigDecimal objective = toProgressResponse(goal, accounts).monthlyNeeded();
+        BigDecimal actual = calculateActualForMonth(accounts, YearMonth.parse(yearMonth));
         BigDecimal manualActual = manualContributionRepository.findByGoalIdAndYearMonth(goalId, yearMonth)
             .map(GoalManualContribution::getAmount).orElse(null);
         BigDecimal effective = manualActual != null ? manualActual : actual;
@@ -363,6 +366,7 @@ public class GoalService {
     @Transactional
     public GoalMonthEntryResponse setManualContribution(Long goalId, String yearMonth, BigDecimal amount, Long memberId) {
         Goal goal = getOrThrow(goalId, memberId);
+        List<Account> accounts = ownedAccountsFor(goal);
         GoalManualContribution entry = manualContributionRepository
             .findByGoalIdAndYearMonth(goalId, yearMonth)
             .orElseGet(GoalManualContribution::new);
@@ -374,8 +378,8 @@ public class GoalService {
         entry.setAmount(amount);
         manualContributionRepository.save(entry);
 
-        BigDecimal objective = toProgressResponse(goal).monthlyNeeded();
-        BigDecimal actual = calculateActualForMonth(goal, YearMonth.parse(yearMonth));
+        BigDecimal objective = toProgressResponse(goal, accounts).monthlyNeeded();
+        BigDecimal actual = calculateActualForMonth(accounts, YearMonth.parse(yearMonth));
         BigDecimal override = overrideRepository.findByGoalIdAndYearMonth(goalId, yearMonth)
             .map(GoalMonthOverride::getAmount).orElse(null);
         BigDecimal effective = override != null ? override : amount;
@@ -385,17 +389,18 @@ public class GoalService {
     @Transactional
     public GoalMonthEntryResponse deleteManualContribution(Long goalId, String yearMonth, Long memberId) {
         Goal goal = getOrThrow(goalId, memberId);
+        List<Account> accounts = ownedAccountsFor(goal);
         manualContributionRepository.findByGoalIdAndYearMonth(goalId, yearMonth)
             .ifPresent(manualContributionRepository::delete);
-        BigDecimal objective = toProgressResponse(goal).monthlyNeeded();
-        BigDecimal actual = calculateActualForMonth(goal, YearMonth.parse(yearMonth));
+        BigDecimal objective = toProgressResponse(goal, accounts).monthlyNeeded();
+        BigDecimal actual = calculateActualForMonth(accounts, YearMonth.parse(yearMonth));
         BigDecimal override = overrideRepository.findByGoalIdAndYearMonth(goalId, yearMonth)
             .map(GoalMonthOverride::getAmount).orElse(null);
         BigDecimal effective = override != null ? override : actual;
         return new GoalMonthEntryResponse(yearMonth, objective, actual, null, override, effective);
     }
 
-    private BigDecimal calculateActualForMonth(Goal goal, YearMonth ym) {
+    private BigDecimal calculateActualForMonth(List<Account> accounts, YearMonth ym) {
         if (ym.isAfter(YearMonth.now())) return null;
 
         LocalDate prevMonthEnd = ym.minusMonths(1).atEndOfMonth();
@@ -404,7 +409,7 @@ public class GoalService {
         BigDecimal total = BigDecimal.ZERO;
         boolean hasData = false;
 
-        for (Account account : ownedAccountsFor(goal)) {
+        for (Account account : accounts) {
             Optional<BalanceSnapshot> prev = snapshotRepository
                 .findFirstByAccountIdAndDateLessThanEqualOrderByDateDesc(account.getId(), prevMonthEnd);
             Optional<BalanceSnapshot> curr = snapshotRepository

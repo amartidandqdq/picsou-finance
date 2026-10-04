@@ -1,7 +1,9 @@
 package com.picsou.service;
 
 import com.picsou.model.AppUser;
+import com.picsou.model.Account;
 import com.picsou.model.FamilyMember;
+import com.picsou.model.SharedResource;
 import com.picsou.model.SharingLevel;
 import com.picsou.model.SharingSettings;
 import com.picsou.model.UserRole;
@@ -111,6 +113,44 @@ class FamilyServiceTest {
         verify(sharingSettingsRepository).save(any(SharingSettings.class));
         verify(sharedResourceRepository).deleteAllByOwnerMemberIdAndResourceType(3L, "ACCOUNT");
         verify(accountRepository, never()).findAllByIdInAndMemberId(any(), any());
+    }
+
+    @Test
+    void updateSharingSettings_dropsStaleIdsInsteadOfRejecting() {
+        FamilyMember member = member("Charlie");
+        when(memberRepository.findById(3L)).thenReturn(Optional.of(member));
+        when(sharingSettingsRepository.findByMemberIdAndResourceType(3L, "ACCOUNT"))
+            .thenReturn(Optional.empty());
+        // 10 is still owned; 99 lingers in shared_resource after a soft delete.
+        when(sharedResourceRepository.findAllByOwnerMemberIdAndResourceType(3L, "ACCOUNT"))
+            .thenReturn(List.of(SharedResource.builder().resourceId(99L).build()));
+        when(accountRepository.findAllByIdInAndMemberId(List.of(10L, 99L), 3L))
+            .thenReturn(List.of(Account.builder().id(10L).build()));
+
+        SharingSettingsRequest request = new SharingSettingsRequest("ACCOUNT", SharingLevel.MANUAL, List.of(10L, 99L));
+        familyService.updateSharingSettings(3L, request);
+
+        verify(sharedResourceRepository).deleteAllByOwnerMemberIdAndResourceType(3L, "ACCOUNT");
+        ArgumentCaptor<SharedResource> captor = ArgumentCaptor.forClass(SharedResource.class);
+        verify(sharedResourceRepository).save(captor.capture());
+        assertThat(captor.getValue().getResourceId()).isEqualTo(10L);
+    }
+
+    @Test
+    void updateSharingSettings_rejectsUnknownIdsThatWereNeverShared() {
+        when(sharedResourceRepository.findAllByOwnerMemberIdAndResourceType(3L, "ACCOUNT"))
+            .thenReturn(List.of());
+        when(accountRepository.findAllByIdInAndMemberId(List.of(10L), 3L))
+            .thenReturn(List.of());
+
+        SharingSettingsRequest request = new SharingSettingsRequest("ACCOUNT", SharingLevel.MANUAL, List.of(10L));
+
+        assertThatThrownBy(() -> familyService.updateSharingSettings(3L, request))
+            .isInstanceOf(ResponseStatusException.class)
+            .hasMessageContaining("shared resources not found");
+
+        verify(sharingSettingsRepository, never()).save(any());
+        verify(sharedResourceRepository, never()).save(any());
     }
 
     private FamilyMember member(String displayName) {
