@@ -7,7 +7,7 @@ This checkout tracks two repositories: the original Picsou project and the perso
 | Remote | Purpose | URL |
 |--------|---------|-----|
 | `origin` | Personal fork. Push your branches here. | `https://github.com/amartidandqdq/picsou-finance.git` |
-| `upstream` | Original project. Fetch updates from here. | `https://github.com/Zoeille/picsou-finance.git` |
+| `upstream` | Original project. Fetch updates from here. | `https://github.com/Cloeille/picsou-finance.git` |
 
 The `upstream` push URL is intentionally disabled so local commands cannot accidentally push to the original project.
 
